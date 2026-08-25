@@ -2,6 +2,7 @@
 
 import json
 import time
+import urllib.error
 import urllib.request
 from pathlib import Path
 from typing import Tuple
@@ -10,6 +11,7 @@ from urllib.parse import quote
 CACHE_PATH = Path(__file__).parent / "geocode_cache.json"
 USER_AGENT = "kavelscanner-personal-tool/0.1"
 MIN_INTERVAL_SEC = 1.1  # Nominatim usage policy: max 1 request/seconde
+MAX_RETRIES = 4
 
 _last_request_time = 0.0
 
@@ -33,18 +35,29 @@ def geocode(city: str, country_code: str) -> Tuple[float, float]:
     if key in cache:
         return tuple(cache[key])
 
-    elapsed = time.time() - _last_request_time
-    if elapsed < MIN_INTERVAL_SEC:
-        time.sleep(MIN_INTERVAL_SEC - elapsed)
-
     url = (
         "https://nominatim.openstreetmap.org/search?"
         f"city={quote(city)}&country={quote(country_code)}&format=json&limit=1"
     )
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(req, timeout=10) as resp:
-        data = json.loads(resp.read().decode())
-    _last_request_time = time.time()
+
+    backoff = MIN_INTERVAL_SEC
+    data = None
+    for attempt in range(MAX_RETRIES):
+        elapsed = time.time() - _last_request_time
+        if elapsed < backoff:
+            time.sleep(backoff - elapsed)
+        try:
+            with urllib.request.urlopen(req, timeout=10) as resp:
+                data = json.loads(resp.read().decode())
+            _last_request_time = time.time()
+            break
+        except urllib.error.HTTPError as exc:
+            _last_request_time = time.time()
+            if exc.code == 429 and attempt < MAX_RETRIES - 1:
+                backoff *= 2  # exponentiële backoff bij rate-limiting
+                continue
+            raise
 
     if not data:
         raise ValueError(f"Kon '{city}, {country_code}' niet geocoderen")

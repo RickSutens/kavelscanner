@@ -23,6 +23,7 @@ SKIP_CATEGORIES = {"Vastgoed"}  # onroerend goed is niet herverkoopbaar als los 
 PAGE_SIZE = 48
 DELAY_SEC = 1.2
 CLOSING_WINDOW_DAYS = 7
+MAX_PAGES_PER_CATEGORY = 15  # veiligheidslimiet: voorkomt dat 1 drukke categorie de hele run vertraagt
 
 OUTPUT_DIR = Path(__file__).parent / "output"
 
@@ -63,6 +64,9 @@ def scan_category(label: str, path: str, cutoff_ts: float) -> list:
         print(f"  {label}: pagina {page} -- {len(lots)} binnen venster (totaal categorie: {total})")
 
         if reached_cutoff or not results or page * PAGE_SIZE >= total:
+            break
+        if page >= MAX_PAGES_PER_CATEGORY:
+            print(f"  [LIMIET] {label}: gestopt na {MAX_PAGES_PER_CATEGORY} pagina's (categorie heeft meer binnen het venster)")
             break
         page += 1
         time.sleep(DELAY_SEC)
